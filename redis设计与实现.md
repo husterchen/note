@@ -467,8 +467,71 @@ redis-sentinel 配置文件路径
 redis-server 配置文件路径 --sentinel
 ```
 
+## 哨兵初始化
+
 哨兵是通过连接主服务器获取相应从服务器的信息的，sentinel会将从服务器信息记录在主服务器实例结构的slaves字典里面，获取到从服务器信息后回创建到从服务器的连接，和主服务器一样创建命令连接和订阅连接（向_sentinel_:hello发送订阅信息）。默认会以十秒一次的频率向连接的服务器发送INFO命令获取服务器状态。每两秒一次通过命令连接向服务器的_sentinel_:hello频道发送信息。这也就是说，对于每个与Sentinel连接的服务器，Sentinel既通过命令连接向服务器的__sentinel__:hello频道发送信息，又通过订阅连接从服务器的__sentinel__:hello频道接收信息。
 
-对于监视同一个服务器的多个Sentinel来说，一个Sentinel发送的信息会被其他Sentinel接收到，这些信息会被用于更新其他Sentinel对发送信息Sentinel的认知，也会被用于更新其他Sentinel对被监视服务器的认知。
+对于监视同一个服务器的多个Sentinel来说，一个Sentinel发送的频道信息会被其他Sentinel接收到，这些信息会被用于更新其他Sentinel对发送信息Sentinel的认知，也会被用于更新其他Sentinel对被监视服务器的认知。
 
-每个sentinel服务器都会记录其他监视同一服务器的sentinel服务器的信息，双方会创建连接。
+每个sentinel服务器都会记录其他监视同一服务器的sentinel服务器的信息，双方会创建命令连接。
+
+初始化哨兵时不会向初始化一般redis服务器一样载入RDB或者AOF文件，载入的命令表也不一样。
+
+```c
+struct sentinelState{
+  //当前纪元，用于实现故障转移
+  uint64_t current_epoch;
+  //保存了所有被这个sentinel监视的主服务器
+  dict *masters;
+  //是否进入了TILT模式？
+  inttilt;
+  //目前正在执行的脚本的数量
+  int running_scripts;
+  //进入TILT模式的时间
+  mstime_t tilt_start_time;
+  //最后一次执行时间处理器的时间
+  mstime_t previous_time;
+  //一个FIFO队列，包含了所有需要执行的用户脚本
+  list *scripts_queue;
+}sentinel;
+```
+
+## 检测主观下线
+
+默认情况下，Sentinel会以每秒一次的频率向所有与它创建了命令连接的实例发送ping命令来判断实例是否在线。Sentinel配置文件中的down-after-milliseconds选项指定了Sentinel判断实例进入主观下线所需的时间长度：如果一个实例在down-after-milliseconds毫秒内，连续向Sentinel返回无效回复，那么Sentinel会修改这个实例所对应的实例结构，在结构的flags属性中打开SRI_S_DOWN标识，以此来表示这个实例已经进入主观下线状态。
+
+用户设置的down-after-milliseconds选项的值，不仅会被Sentinel用来判断主服务器的主观下线状态，还会被用于判断主服务器属下的所有从服务器，以及所有同样监视这个主服务器的其他Sentinel的主观下线状态。
+
+当前Sentinel判断一服务器为主观下线后，会询问同样监视这一服务器的其他Sentinel，如果足够数量的Sentinel认为该服务器下线了，那么当前Sentinel会判断该服务器客观下线，并对该服务器进行故障转移。
+
+## 选举领头Sentinel
+
+当一个主服务器被判断为客观下线时，监视这个下线主服务器的各个Sentinel会进行协商，选举出一个领头Sentinel，并由领头Sentinel对下线主服务器执行故障转移操作。
+
+```shell
+SENTINEL is-master-down-by-addr <ip> <port> <current_epoch> <runid>
+```
+
+current_epoch:计数器，每进行一个选举就+1
+
+runid:运行id
+
+回复信息：
+
+1)<down_state>
+
+2)<leader_runid>
+
+3)<leader_epoch>
+
+选举流程：
+
+* 服务器被判定客观下线，向其他Sentinel服务器发送SENTINEL is-master-down-by-addr命令
+* 收到命令的服务器如果没有设置局部领头Sentinel，会将命令中的runid设置为当前局部领头并回复
+* 收到回复后进行统计，获得超过半数的成为领头
+
+## 故障转移
+
+* 从下线的主服务器的从服务器中选出新的主服务器
+* 其他从服务器复制新的主服务器
+* 下线主服务器设置为新主服务器的从服务器
