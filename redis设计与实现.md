@@ -535,3 +535,79 @@ runid:运行id
 * 从下线的主服务器的从服务器中选出新的主服务器
 * 其他从服务器复制新的主服务器
 * 下线主服务器设置为新主服务器的从服务器
+
+# 集群
+
+## 集群节点
+
+向一个节点node发送CLUSTER MEET命令，可以让node节点与ip和port所指定的节点进行握手（handshake），当握手成功时，node节点就会将ip和port所指定的节点添加到node节点当前所在的集群中。
+
+```shell
+CLUSTER MEET <ip> <port>
+CLUSTER NODES //查看当前集群包含的节点
+CLUSTER INFO  //查看集群相关信息
+```
+
+一个节点就是一个运行在集群模式下的Redis服务器，Redis服务器在启动时会根据cluster-enabled配置选项是否为yes来决定是否开启服务器的集群模式。![截屏2019-12-24下午9.42.29](/Users/chenjie/Library/Application Support/typora-user-images/截屏2019-12-24下午9.42.29.png)
+
+之后，节点A会将节点B的信息通过Gossip协议传播给集群中的其他节点，让其他节点也与节点B进行握手，最终，经过一段时间之后，节点B会被集群中的所有节点认识。
+
+## 槽指派
+
+Redis集群通过分片的方式来保存数据库中的键值对：集群的整个数据库被分为16384个槽（slot），数据库中的每个键都属于这16384个槽的其中一个，集群中的每个节点可以处理0个或最多16384个槽。当数据库中的16384个槽都有节点在处理时，集群处于上线状态（ok）；相反地，如果数据库中有任何一个槽没有得到处理，那么集群处于下线状态（fail）。
+
+通过向节点发送CLUSTERADDSLOTS命令，我们可以将一个或多个槽指派（assign）给节点负责：
+
+```shell
+CLUSTER ADDSLOTS <slot> [slot...]
+CLUSTER KEYSLOT <key> //查看给定键属于哪个槽
+```
+
+```c
+struct clusterNode{
+  //...
+  unsigned char slots[16384/8];
+  int numslots;
+  //...
+};
+```
+
+slots属性是一个二进制位数组（bitarray），这个数组的长度为16384/8=2048个字节，共包含16384个二进制位。Redis以0为起始索引，16383为终止索引，对slots数组中的16384个二进制位进行编号，并根据索引i上的二进制位的值来判断节点是否负责处理槽i：
+
+* 如果slots数组在索引i上的二进制位的值为1，那么表示节点负责处理槽i。
+* 如果slots数组在索引i上的二进制位的值为0，那么表示节点不负责处理槽i。
+
+节点会将自己负责的slot信息发送给其他节点，所以集群中的每个节点都会知道数据库中的16384个槽分别被指派给了集群中的哪些节点。
+
+此外节点的clusterState结构中的slots数组记录了集群中所有16384个槽的指派信息：
+
+* 如果slots[i]指针指向NULL，那么表示槽i尚未指派给任何节点。
+* 如果slots[i]指针指向一个clusterNode结构，那么表示槽i已经指派给了clusterNode结构所代表的节点。
+
+计算键属于哪个槽：
+
+```c
+CRC16(key) & 16383
+```
+
+一个集群客户端通常会与集群中的多个节点创建套接字连接，而所谓的节点转向实际上就是换一个套接字来发送命令。如果客户端尚未与想要转向的节点创建套接字连接，那么客户端会先根据MOVED错误提供的IP地址和端口号来连接节点，然后再进行转向。
+
+节点只使用0号数据库，此外除了将键值对保存在数据库里面之外，节点还会用clusterState结构中的slots_to_keys跳跃表来保存槽和键之间的关系，方便对于属于某个或者某些槽的所有键进行批量操作，命令CLUSTER GETKEYSINSLOT <slot> <count>命令可以返回最多count个属于槽slot的数据库键，而这个命令就是通过遍历slots_to_keys跳跃表来实现的。
+
+## 重新分片
+
+redis-trib对集群的单个槽slot进行重新分片的步骤如下：
+
+* redis-trib对目标节点发送CLUSTER SETSLOT<slot>IMPORTING<source_id>命令，让目标节点准备好从源节点导入（import）属于槽slot的键值对。
+* redis-trib对源节点发送CLUSTER SETSLOT<slot>MIGRATING<target_id>命令，让源节点准备好将属于槽slot的键值对迁移（migrate）至目标节点。
+* redistrib向源节点发送CLUSTER GETKEYSINSLOT<slot><count>命令，获得最多count个属于槽slot的键值对的键名（keyname）。
+* 对于步骤3获得的每个键名，redis-trib都向源节点发送一个MIGRATE<target_ip><target_port><key_name>0<timeout>命令，将被选中的键原子地从源节点迁移至目标节点。
+* 重复执行步骤3和步骤4，直到源节点保存的所有属于槽slot的键值对都被迁移至目标节点为止。
+* redistrib向集群中的任意一个节点发送CLUSTER SETSLOT<slot>NODE<target_id>命令，将槽slot指派给目标节点，这一指派信息会通过消息发送至整个集群，最终集群中的所有节点都会知道槽slot已经指派给了目标节点。
+
+如果分片设计多个槽，重复执行以上操作。
+
+当客户端向源节点发送一个与数据库键有关的命令，并且命令要处理的数据库键恰好就属于正在被迁移的槽时：
+
+* 源节点会先在自己的数据库里面查找指定的键，如果找到的话，就直接执行客户端发送的命令。
+* 如果源节点没能在自己的数据库里面找到指定的键，那么这个键有可能已经被迁移到了目标节点，源节点将向客户端返回一个ASK错误，指引客户端转向正在导入槽的目标节点，并再次发送之前想要执行的命令。
