@@ -548,7 +548,7 @@ CLUSTER NODES //查看当前集群包含的节点
 CLUSTER INFO  //查看集群相关信息
 ```
 
-一个节点就是一个运行在集群模式下的Redis服务器，Redis服务器在启动时会根据cluster-enabled配置选项是否为yes来决定是否开启服务器的集群模式。![截屏2019-12-24下午9.42.29](/Users/chenjie/Library/Application Support/typora-user-images/截屏2019-12-24下午9.42.29.png)
+一个节点就是一个运行在集群模式下的Redis服务器，Redis服务器在启动时会根据cluster-enabled配置选项是否为yes来决定是否开启服务器的集群模式。![截屏2019-12-24下午9.42.29](https://tva1.sinaimg.cn/large/006tNbRwgy1gaagrhltt3j310s0a0myr.jpg)
 
 之后，节点A会将节点B的信息通过Gossip协议传播给集群中的其他节点，让其他节点也与节点B进行握手，最终，经过一段时间之后，节点B会被集群中的所有节点认识。
 
@@ -611,3 +611,40 @@ redis-trib对集群的单个槽slot进行重新分片的步骤如下：
 
 * 源节点会先在自己的数据库里面查找指定的键，如果找到的话，就直接执行客户端发送的命令。
 * 如果源节点没能在自己的数据库里面找到指定的键，那么这个键有可能已经被迁移到了目标节点，源节点将向客户端返回一个ASK错误，指引客户端转向正在导入槽的目标节点，并再次发送之前想要执行的命令。
+
+```c
+typedef struct clusterState{
+  //...
+  //当前节点正在从别的节点导入的槽
+  //importing_slots_from[i]指向clusterNode结构，那么表示当前节点正在从clusterNode所代表的节点导入槽i
+  //CLUSTER SETSLOT<slot>IMPORTING<source_id>实现依据
+  clusterNode *importing_slots_from[16384];
+  //当前节点正在迁移至其他节点的槽
+  //CLUSTER SETSLOT<slot>MIGRATING<target_id>实现依据
+  clusterNode *migrating_slots_to[16384];
+  //...
+}clusterState;
+```
+
+当客户端接收到ASK错误并转向至正在导入槽的节点时，客户端会先向节点发送一个ASKING命令，然后才重新发送想要执行的命令，这是因为如果客户端不发送ASKING命令，而直接发送想要执行的命令的话，那么客户端发送的命令将被节点拒绝执行，并返回MOVED错误。ASKING命令唯一要做的就是打开发送该命令的客户端的REDIS_ASKING标识，在一般情况下，如果客户端向节点发送一个关于槽i的命令，而槽i又没有指派给这个节点的话，那么节点将向客户端返回一个MOVED错误；但是，如果节点的clusterState.importing_slots_from[i]显示节点正在导入槽i，并且发送命令的客户端带有REDIS_ASKING标识，那么节点将破例执行这个关于槽i的命令一次。客户端的REDIS_ASKING标识是一个一次性标识，当节点执行了一个带有REDIS_ASKING标识的客户端发送的命令之后，客户端的REDIS_ASKING标识就会被移除。
+
+## 复制与故障转移
+
+```shell
+CLUSTER REPLICATE <node_id> //设置从节点命令,发送完开始进行复制（同之前）
+```
+
+```c
+struct clusterNode{
+  //...
+  //如果这是一个从节点，那么指向主节点
+  struct clusterNode *slaveof;
+  //...
+};
+```
+
+一个节点成为从节点，并开始复制某个主节点这一信息会通过消息发送给集群中的其他节点，最终集群中的所有节点都会知道某个从节点正在复制某个主节点。集群中的所有节点都会在代表主节点的clusterNode结构的slaves属性和numslaves属性中记录正在复制这个主节点的从节点名单。
+
+集群中的每个节点都会定期地向集群中的其他节点发送PING消息，以此来检测对方是否在线，如果接收PING消息的节点没有在规定的时间内，向发送PING消息的节点返回PONG消息，那么发送PING消息的节点就会将接收PING消息的节点标记为疑似下线。当一个主节点A通过消息得知主节点B认为主节点C进入了疑似下线状态时，主节点A会在自己的clusterState.nodes字典中找到主节点C所对应的clusterNode结构，并将主节点B的下线报告（failure report）添加到clusterNode结构的fail_reports链表里面。如果在一个集群里面，半数以上负责处理槽的主节点都将某个主节点x报告为疑似下线，那么这个主节点x将被标记为已下线（FAIL），将主节点x标记为已下线的节点会向集群广播一条关于主节点x的FAIL消息，所有收到这条FAIL消息的节点都会立即将主节点x标记为已下线。
+
+故障转移和主节点的选举和哨兵类似。
