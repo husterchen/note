@@ -648,3 +648,92 @@ struct clusterNode{
 集群中的每个节点都会定期地向集群中的其他节点发送PING消息，以此来检测对方是否在线，如果接收PING消息的节点没有在规定的时间内，向发送PING消息的节点返回PONG消息，那么发送PING消息的节点就会将接收PING消息的节点标记为疑似下线。当一个主节点A通过消息得知主节点B认为主节点C进入了疑似下线状态时，主节点A会在自己的clusterState.nodes字典中找到主节点C所对应的clusterNode结构，并将主节点B的下线报告（failure report）添加到clusterNode结构的fail_reports链表里面。如果在一个集群里面，半数以上负责处理槽的主节点都将某个主节点x报告为疑似下线，那么这个主节点x将被标记为已下线（FAIL），将主节点x标记为已下线的节点会向集群广播一条关于主节点x的FAIL消息，所有收到这条FAIL消息的节点都会立即将主节点x标记为已下线。
 
 故障转移和主节点的选举和哨兵类似。
+
+# 发布订阅
+
+```shell
+publish
+subscribe
+//如果有一个或多个模式pattern与频道channel相匹配，那么将消息message发送给pattern模式的订阅者
+psubscribe //订阅多个主题，利用模式（类似正则表达式）
+pubsub channels [pattern]//返回当前被订阅频道
+PUBSUB NUMSUB [channel-1 channel-2...channel-n] //返回给定频道的订阅者数量
+PUBSUB NUMPAT //返回服务器当前被订阅模式的数量
+```
+
+```c
+struct redisServer{
+  //...
+  //保存所有频道的订阅关系
+  //键为订阅频道，值为订阅客户端链表
+  dict *pubsub_channels;
+  //保存所有模式订阅关系
+  list *pubsub_patterns;
+  //...
+};
+
+typedef struct pubsubPattern{
+  //订阅模式的客户端
+  redisClient *client;
+  //被订阅的模式
+  robj *pattern;
+}pubsubPattern;
+```
+
+# 事务
+
+```shell
+MULTI
+EXEC
+WATCH
+
+```
+
+所有对数据库进行修改的命令在执行前都会查看是否有客户端正在监视刚刚被命令修改的键，如果有那么将监视的客户端标识REDIS_DIRTY_CAS，服务器在接收到EXEC命令时会进行下面的判断。
+
+![截屏2019-12-29下午8.44.34](https://tva1.sinaimg.cn/large/006tNbRwgy1gadvow3vl1j313y0imjte.jpg)
+
+在Redis中，事务总是具有原子性（Atomicity）、一致性（Consistency）和隔离性（Isolation），并且当Redis运行在某种特定的持久化模式下时，事务也具有耐久性（Durability）。
+
+Redis不支持事务回滚机制（rollback），即使事务队列中的某个命令在执行期间出现了错误，整个事务也会继续执行下去，直到将事务队列中的所有命令都执行完毕为止。
+
+# 排序
+
+```shell
+SORT <key> //对包含数字值的键进行排序，默认升序，可用ASC（升）/DESC（降）指定
+SORT <key> ALPHA //对包含字符串值的键进行排序
+MSET apple-price 8 banana-price 5.5 cherry-price 7 //设置权重键
+SORT fruits BY *-price //按给定权值排序
+SORT fruits BY 【】 ALPHA //设置的键的权重值为字符串
+LIMIT <offset> <count> //加在排序命令后面
+GET *-name（例子） //返回排序结果对应的其他值，后面的参数用于指定返回的值
+STORE <key> //默认不存储排序结果，该命令加在后面表示将排序结果存在给定的键中
+```
+
+排序选项执行顺序：
+
+* 排序
+* 限制结果集长度
+* 获取外部键
+* 保存排序结果集
+* 返回排序结果
+
+# 二进制数组
+
+```shell
+SETBIT
+GETBIT
+BITCOUNT //统计1的个数
+BITOP //多个二进制数组进行运算
+```
+
+# 慢查询日志
+
+* slowlog-log-slower-than //指定执行时间超过多少微秒的命令会被记录
+* slowlog-max-len //指定服务器最多保存多少条慢查询日志
+
+可通过CONFIG SET命令对上面的参数进行设置，SLOWLOG GET命令获取记录的慢查询日志
+
+# 监视器
+
+通过执行MONITOR命令，客户端可以将自己变为一个监视器，实时地接收并打印出服务器当前处理的命令请求的相关信息。
