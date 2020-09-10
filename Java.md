@@ -200,14 +200,16 @@ CompletableFuture可以定制执行任务的线程池。
 
 使用函数式编程我们可以创建延时数据结构，在需要的时候通过函数生成数据。
 
-#  volatile实现
+# java 并发知识
+
+## volatile实现
 
 volatile是轻量级的synchronized，不会引起上下文的切换。如果一个字段被声明成volatile，Java线程内存模型确保所有线程看到这个变量的值是一致的。对声明了volatile的变量进行写操作，JVM就会向处理器发送一条Lock前缀的指令，Lock前缀指令会实现一下两种操作：
 
 * 将当前处理器缓存行的数据写回到系统内存。
 * 这个写回内存的操作会使在其他CPU里缓存了该内存地址的数据无效。这就是缓存一致性协议，每个处理器通过嗅探在总线上传播的数据来检查自己缓存的值是不是过期了，当处理器发现自己缓存行对应的内存地址被修改，就会将当前处理器的缓存行设置成无效状态，当处理器对这个数据进行修改操作的时候，会重新从系统内存中把数据读到处理器缓存里。
 
-# synchronized的实现
+## synchronized的实现
 
 JVM基于进入和退出Monitor对象来实现方法同步和代码块同步，底层由monitorenter和monitorexit指令实现。。任何对象都有一个monitor与之关联，当且一个monitor被持有后，它将处于锁定状态。线程执行到monitorenter指令时，将会尝试获取对象所对应的monitor的所有权，即尝试获得对象的锁。
 
@@ -227,13 +229,13 @@ synchronized的锁信息存储在java对象头中：
 
 对于重量级锁来说如果存在锁竞争会直接阻塞当前线程。
 
-# 原子操作
+## 原子操作
 
 处理器实现原子操作是通过总线锁或者缓存锁，其中总线锁就是锁定cpu和内存之间的操作。
 
 java通过锁和CAS实现原子操作。其中CAS存在ABA问题，循环开销大，只能保证一个变量操作的原子性。
 
-# Java内存模型
+## Java内存模型
 
 java并发采用的是共享内存模型。
 
@@ -269,11 +271,9 @@ final的重排序规则：
 
 在执行类的初始化期间，JVM会去获取一个锁。这个锁可以同步多个线程对同一个类的初始化。
 
-# 线程通信
+## 线程通信
 
 管道输入/输出流适用于线程间的数据传输，传输媒介为内存。
-
-# Java中锁的实现
 
 ## AQS
 
@@ -303,9 +303,9 @@ ConditionObject是同步器AbstractQueuedSynchronizer的内部类。Condition包
 
 调用Condition的signal()方法，将会唤醒在等待队列中的首节点，在唤醒节点之前会将节点移到同步队列中。
 
-# Java并发容器和框架
+## Java并发容器和框架
 
-## ConcurrentHashMap
+### ConcurrentHashMap
 
 HashTable容器使用synchronized来保证线程安全，但在线程竞争激烈的情况下HashTable的效率非常低下。ConcurrentHashMap通过分段锁有效提高并发访问的效率。
 
@@ -313,13 +313,13 @@ ConcurrentHashMap是由Segment数组结构和HashEntry数组结构组成。Segme
 
 segment数组的长度确保为2的N次方。get操作不需要加锁，因为和get操作相关的共享变量都是volitile类型，并且get操作不涉及到对共享变量的写。
 
-## ConcurrentLinkedQueue
+### ConcurrentLinkedQueue
 
 入队操作为了保证线程安全需要CAS操作更新tail结点，这样会导致入队操作性能下降。所以ConcurrentLinkedQueue设置了变量hops，当tail结点和尾结点的长度超过该变量时才会CAS更新tail结点，这样会提高入队效率，但同时也会延长定位尾结点的时间。出队操作也是这样更新head结点。
 
 出队首先获取头节点的元素，然后判断头节点元素是否为空，如果为空，表示另外一个线程已经进行了一次出队操作将该节点的元素取走，则取下一个结点。如果不为空，则使用CAS的方式将头节点的引用设置成null，如果CAS成功，则直接返回头节点的元素，如果不成功，表示另外一个线程已经进行了一次出队操作更新了head节点，导致元素发生了变化，需要重新获取头节点。
 
-## 阻塞队列
+### 阻塞队列
 
 当阻塞队列满时会阻塞入队线程，当队列空时会阻塞出队线程。
 
@@ -335,29 +335,27 @@ JDK7提供了7个阻塞队列，如下：
 
 阻塞队列一般通过Condition实现。
 
-## Fork/Join
+### Fork/Join
 
 工作窃取算法是指线程从其他线程的工作队列中获取任务执行，这样是为了减少因为线程空闲造成的资源闲置，当前线程任务处理结束后可以通过该机制帮助其他线程进行任务处理。为了减少多个线程处理同一队列造成的竞争关系，一般采用双端队列。
 
-# Java并发工具类
-
-## CountDownLatch
+### CountDownLatch
 
 CountDownLatch允许一个或多个线程等待其他线程完成操作。
 
-## CyclicBarrier
+### CyclicBarrier
 
 让一组线程到达一个同步点时被阻塞，直到最后一个线程到达同步点时所有阻塞在同步点的线程才会继续运行。CyclicBarrier可以通过reset方法进行充值。
 
-## Semaphore
+### Semaphore
 
 用来控制同时访问特定资源的线程数。
 
-## Exchanger
+### Exchanger
 
 用于进行线程间的数据交换。它提供一个同步点，在这个同步点，两个线程可以交换彼此的数据。这两个线程通过exchange方法交换数据，如果第一个线程先执行exchange()方法，它会一直等待第二个线程也执行exchange方法，当两个线程都到达同步点时，这两个线程就可以交换数据，将本线程生产出来的数据传递给对方。
 
-# Java线程池
+## Java线程池
 
 线程池的主要处理流程：
 
@@ -373,9 +371,113 @@ ThreadPoolExecutor的执行示意图：
 
 可以通过调用线程池的shutdown或shutdownNow方法来关闭线程池。它们的原理是遍历线程池中的工作线程，然后逐个调用线程的interrupt方法来中断线程，所以无法响应中断的任务可能永远无法终止。但是它们存在一定的区别，shutdownNow首先将线程池的状态设置成STOP，然后尝试停止所有的正在执行或暂停任务的线程，并返回等待执行任务的列表，而shutdown只是将线程池的状态设置成SHUTDOWN状态，然后中断所有没有正在执行任务的线程。
 
-# Executor
+## Executor
 
 和线程池差不多。
+
+## Java 并发课程补充
+
+导致并发问题的源头：
+
+* 缓存可见性问题
+* 线程切换的原子性问题
+* 编译器优化带来的有序性问题
+
+java内存模型规范了JVM如何提供按需禁用缓存和编译优化的方法。
+
+happens-before规则表达的是：前面一个操作的结果对后续操作是可见的。常见的六项规则：
+
+* 程序的顺序性规则（编译器的重排序的优化是基于在单线程下不会影响程序的执行结果）
+* volatile变量规则
+* 传递性
+* 管程中锁的规则
+* 线程start规则
+* 线程join规则
+
+上锁是必须确保是同一个锁对象，有些不可变对象重新赋值后就会变成另一个对象。
+
+解决死锁的常用套路：
+
+* 破坏占用且等待条件（一次申请所有资源）
+* 破坏不可抢占条件
+* 破坏循环等待条件
+
+管程：管理共享变量以及对共享变量的操作过程，让他们支持并发。java中的管程示意图：
+
+<img src="https://tva1.sinaimg.cn/large/007S8ZIlgy1ghcpz7cnz0j30i60ha0un.jpg" alt="截屏2020-08-02 下午8.03.44" style="zoom:50%;" />
+
+线程的五态模型：
+
+<img src="/Users/chenjie/Library/Application Support/typora-user-images/截屏2020-08-02 下午8.06.46.png" alt="截屏2020-08-02 下午8.06.46" style="zoom:50%;" />
+
+初始状态只是编程语言层面的，这个时候在操作系统层面真正的线程还没有被创建。可运行状态是指操作系统已经创建了该线程，可以被分配CPU执行。java中讲可运行状态和运行状态归为一体，因为线程的调度发生在操作系层面。
+
+stop方法会直接杀死线程，interrupt方法仅仅是通知线程。
+
+抛出异常时会自动清除中断标示。
+
+在并发编程领域，提升性能本质上就是提升硬件的利用率，再具体点来说，就是提升 I/O 的利用率和 CPU 的利用率。
+
+ReadWriteLock 不支持锁升级，支持锁降级。
+
+StampedLock提供三种模式锁：写锁，悲观读锁和乐观读，乐观读是不需要加锁的。
+
+java并发容器：
+
+<img src="https://tva1.sinaimg.cn/large/007S8ZIlgy1ghkkw6j44kj30vu0aowhz.jpg" alt="截屏2020-08-09 下午3.12.24" style="zoom:50%;" />
+
+CopyOnWriteArrayList：执行写操作时会讲内部维护的数组复制一份，在新的数组上进行写操作，操作完成后将数组指针替换为新数组。在这期间读写会存在一个不一致的时间窗口。该容器的迭代器只读。
+
+ConcurrentHashMap 的 key 是无序的，而 ConcurrentSkipListMap 的 key 是有序的。
+
+java线程池是一种生产者-消费者模式，工作线程作为消费者不断从队列中获取任务，工作线程的个数就是我们说的线程数。
+
+Future 接口有 5 个方法，它们分别是取消任务的方法 cancel()、判断任务是否已取消的方法 isCancelled()、判断任务是否已结束的方法 isDone()以及2 个获得任务执行结果的 get() 和 get(timeout, unit)。FutureTask 实现了 Runnable 和 Future 接口，由于实现了 Runnable 接口，所以可以将 FutureTask 对象作为任务提交给 ThreadPoolExecutor 去执行，也可以直接被 Thread 执行；又因为实现了 Future 接口，所以也能用来获得任务的执行结果。
+
+## CompletableFuture
+
+创建CompletableFuture对象（实现了Future接口）：（默认使用公共的 ForkJoinPool 线程池）
+
+* static CompletableFuture<Void>   runAsync(Runnable runnable) //无返回值
+* static <U> CompletableFuture<U>   supplyAsync(Supplier<U> supplier) //有返回值
+* static CompletableFuture<Void>   runAsync(Runnable runnable, Executor executor)
+* static <U> CompletableFuture<U>   supplyAsync(Supplier<U> supplier, Executor executor)  
+
+CompletableFuture 还能规定任务的执行时序关系，具体应用自己google。
+
+## CompletionService
+
+CompletionService 可以批量执行异步任务，它会将异步任务的执行结果放在内部维护的一个阻塞队列中。
+
+# 并发设计模式
+
+## 享元模式
+
+享元模式本质上其实就是一个对象池，利用享元模式创建对象的逻辑也很简单：创建之前，首先去对象池里看看是不是存在；如果已经存在，就利用对象池里的对象；如果不存在，就会新创建一个对象，并且把这个新创建出来的对象放进对象池里。Java 语言里面 Long、Integer、Short、Byte 等这些基本数据类型的包装类都用到了享元模式。所以这些基本数据类型不适合作为锁对象，会导致看上去私有的锁其实是共有的。
+
+## Immutability模式
+
+## 线程本地存储模式
+
+ThreadLocal内部实现：
+
+<img src="https://tva1.sinaimg.cn/large/007S8ZIlgy1ghsgvblajej30ak0a2myi.jpg" alt="截屏2020-08-16 上午10.57.40" style="zoom:50%;" />
+
+通过 ThreadLocal 创建的线程变量，其子线程是无法继承的，Java 提供了 InheritableThreadLocal 来支持这种特性。
+
+在线程池中使用 ThreadLocal 可能导致内存泄露呢，原因就是线程池中线程的存活时间太长，这就意味着 Thread 持有的 ThreadLocalMap 一直都不会被回收，再加上 ThreadLocalMap 中的 Entry 对 ThreadLocal 是弱引用，所以只要 ThreadLocal 结束了自己的生命周期是可以被回收掉的。但是 Entry 中的 Value 却是被 Entry 强引用的，所以即便 Value 的生命周期结束了，Value 也是无法被回收的，从而导致内存泄露。
+
+## Guarded Suspension 模式
+
+## Balking 模式
+
+## Thread-Per-Message 模式
+
+## Worker Thread 模式
+
+## 二阶段终止模式
+
+首先需要利用中断将线程状态转换为运行时。
 
 # Effective Java
 
