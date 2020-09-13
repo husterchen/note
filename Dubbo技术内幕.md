@@ -195,3 +195,158 @@ Dubbo以CompletableFuture为基础支持所有异步编程接口。老版本的�
 <dubbo:service interface="" version="1.0.0" ref="helloService" registry="hangzhouRegistry" />
 ```
 
+## 服务分组/多版本
+
+```xml
+<dubbo:service group="feedback" interface="com.xxx.IndexService" />
+<dubbo:reference id="feedbackIndexService" group="feedback" interface="com.xxx.IndexService" />
+```
+
+## 分组聚合
+
+```xml
+<dubbo:reference interface="com.xxx.MenuService" group="*" merger="true" />
+```
+
+## 参数验证
+
+```xml
+<dubbo:reference id="validationService" interface="ValidationService" validation="true" />
+```
+
+## 结果缓存
+
+```xml
+<dubbo:reference interface="com.foo.BarService" cache="lru" />
+```
+
+## 泛化调用/泛化实现
+
+```xml
+<dubbo:reference id="barService" interface="com.foo.BarService" generic="true" />
+泛化实现通过实现GenericService接口进行服务编写
+```
+
+## 回声测试
+
+所有服务自动实现EchoService，引用时强转。
+
+## 上下文信息RpcContext
+
+也可以用来隐式传递参数
+
+```java
+RpcContext.getContext().setAttachment("index", "1");
+RpcContext.getContext().getAttachment("index");
+```
+
+## 异步调用
+
+需要服务提供者定义CompletableFuture类型的返回值。
+
+可以通过调用服务获取CompletableFuture，也可以从RpcContext中获取。
+
+## 异步实现
+
+* CompletableFuture
+* AsyncContext
+
+## 本地调用
+
+协议设置成injvm，从 `2.2.0` 开始，每个服务默认都会在本地暴露。在引用服务的时候，默认优先引用本地服务。
+
+## 参数回调
+
+服务提供者需要配置回调类型的参数
+
+```xml
+<bean id="callbackService" class="com.callback.impl.CallbackServiceImpl" />
+<dubbo:service interface="com.callback.CallbackService" ref="callbackService" connections="1" callbacks="1000">
+    <dubbo:method name="addListener">
+        <dubbo:argument index="1" callback="true" />
+        <!--也可以通过指定类型的方式-->
+        <!--<dubbo:argument type="com.demo.CallbackListener" callback="true" />-->
+    </dubbo:method>
+</dubbo:service>
+```
+
+## 事件通知
+
+在调用之前、调用之后、出现异常时，会触发 `oninvoke`、`onreturn`、`onthrow` 三个事件.
+
+```xml
+<bean id ="demoCallback" class = "NofifyImpl" />
+<dubbo:reference id="demoService" interface="IDemoService" version="1.0.0" group="cn" >
+      <dubbo:method name="get" async="true" onreturn = "demoCallback.onreturn" onthrow="demoCallback.onthrow" />
+</dubbo:reference>
+```
+
+## 本地存根
+
+相当于客户端代理，需要在客户端配置stub代理服务。
+
+```xml
+<dubbo:service interface="com.foo.BarService" stub="com.foo.BarServiceStub" />
+```
+
+## 本地伪装
+
+就是服务降级mock。
+
+除了自定义mock行为，dubbo提供了以下几种简单的mock配置：
+
+* return（empty，null，true，false，JSON）
+* throw
+* force 强制mock，不走远程
+* fail 调用失败强制mock
+
+```xml
+<dubbo:reference interface="com.foo.BarService" mock="com.foo.BarServiceMock" />
+<dubbo:reference id="demoService" check="false" interface="com.foo.BarService">
+    <dubbo:parameter key="sayHello.mock" value="force:return fake"/>
+</dubbo:reference>
+```
+
+## 服务延迟暴露
+
+计时从Spring初始化完成后开始进行。
+
+```xml
+<dubbo:service delay="-1" />
+```
+
+## 并发/连接控制
+
+```xml
+// 服务端
+<dubbo:service interface="com.foo.BarService" executes="10" />
+<dubbo:provider protocol="dubbo" accepts="10" />
+// 客户端
+<dubbo:service interface="com.foo.BarService" actives="10" />
+<dubbo:reference interface="com.foo.BarService" connections="10" />
+```
+
+## 延迟连接
+
+```xml
+// 该配置只对使用长连接的 dubbo 协议生效
+<dubbo:protocol name="dubbo" lazy="true" />
+```
+
+## 粘滞连接
+
+粘滞连接用于有状态服务，尽可能让客户端总是向同一提供者发起调用，除非该提供者挂了，再连另一台。粘滞连接将自动开启延迟连接，以减少长连接数。
+
+```xml
+<dubbo:reference id="xxxService" interface="com.xxx.XxxService" sticky="true" />
+```
+
+## 令牌验证
+
+通过令牌验证在注册中心控制权限，以决定要不要下发令牌给消费者，可以防止消费者绕过注册中心访问提供者。
+
+```xml
+<dubbo:provider interface="com.foo.BarService" token="true" />
+<dubbo:service interface="com.foo.BarService" token="true" />
+```
+
