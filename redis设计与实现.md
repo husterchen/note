@@ -1,5 +1,15 @@
 # 数据结构
 
+redis支持的数据结构和底层实现：
+
+ <img src="https://tva1.sinaimg.cn/large/007S8ZIlgy1gj41kjne5ij30uk092q5f.jpg" alt="截屏2020-09-26 下午2.34.54" style="zoom:50%;" />
+
+redis键值的组织结构：
+
+<img src="https://tva1.sinaimg.cn/large/007S8ZIlgy1gj41q5gdq8j30vc0fgwi8.jpg" alt="截屏2020-09-26 下午2.40.50" style="zoom:50%;" />
+
+hash表操作会涉及到hash冲突和rehash带来的性能问题，redis采用渐进rehash。
+
 ##简单动态字符串
 
 该结构是redis字符串的底层实现，redis并没有直接使用C字符串。SDS遵循C字符串以空字符结尾的惯例，保存空字符的1字节空间不计算在SDS的len属性里面，并且为空字符分配额外的1字节空间，以及添加空字符到字符串末尾等操作，都是由SDS函数自动完成的，所以这个空字符对于SDS的使用者来说是完全透明的。
@@ -284,6 +294,8 @@ redis的过期删除策略：惰性删除和定期删除。
 
 ## RDB的创建与载入
 
+RDB记录的是某一时刻的数据，所以**具备快速恢复的优势**。
+
 RDB持久化既可以手动执行，也可以根据服务器配置选项定期执行，该功能可以将某个时间点上的数据库状态保存到一个RDB文件中，有两个Redis命令可以用于生成RDB文件，一个是SAVE，另一个是BGSAVE。
 
 SAVE命令会阻塞Redis服务器进程，直到RDB文件创建完毕为止，在服务器进程阻塞期间，服务器不能处理任何命令请求；BGSAVE命令会派生出一个子进程，然后由子进程负责创建RDB文件，服务器进程（父进程）继续处理命令请求。RDB文件的载入工作是在服务器启动时自动执行的，如果服务器开启了AOF持久化功能，那么服务器会优先使用AOF文件来还原数据库状态，因为一般AOF文件的更新频率比RDB文件高。
@@ -315,6 +327,10 @@ struct saveparam{
 ```
 
 Redis的服务器周期性操作函数serverCron默认每隔100毫秒就会执行一次，该函数用于对正在运行的服务器进行维护，它的其中一项工作就是检查save选项所设置的保存条件是否已经满足，如果满足的话，就执行BGSAVE命令。
+
+RDB的COW机制：在实际执行过程中，是子进程复制了主线程的页表，所以通过页表映射，能读到主线程的原始数据，而当有新数据写入或数据修改时，主线程会把新数据或修改后的数据写到一个新的物理内存地址上，并修改主线程自己的页表映射。所以，子进程读到的类似于原始数据的一个副本，而主线程也可以正常进行修改。
+
+<img src="https://tva1.sinaimg.cn/large/007S8ZIlgy1gj8lv3sq76j30vy0i2dj7.jpg" alt="截屏2020-09-30 下午1.19.51" style="zoom:50%;" />
 
 ## RDB文件结构
 
@@ -388,7 +404,9 @@ key_value_pairs:
 
 RDB持久化通过保存数据库中的键值对来记录数据库状态，AOF持久化通过保存REDIS服务器执行的写命令来记录数据库状态。
 
-AOF实现包含以下三个步骤：
+AOF实现包含以下三个步骤（主线程执行）：
+
+（先执行命令，把数据写入内存，然后才记录日志。redis在写日志的时候并不会对写入的命令做语法检查，所以如果在执行命令前写日志可能会导致写入错误的命令）
 
 * 命令追加
 
@@ -408,9 +426,17 @@ AOF实现包含以下三个步骤：
 
 ## AOF文件重写
 
-AOF文件的重写不是通过读取分析现有AOF文件来实现的，而是通过读取服务器数据库当前状态实现的。读取当前数据库现有数据然后用一条命令记录并存储。实现指令：BGREWRITEAOF。
+AOF文件的重写不是通过读取分析现有AOF文件来实现的，而是通过读取服务器数据库当前状态实现的。读取当前数据库现有数据然后用一条命令记录并存储。实现指令：BGREWRITEAOF。重写机制具有多变一的功能，可以使日志文件变小
 
 通过创建子进程实现，在这期间服务器会创建一个重写缓冲区记录新到达的命令，子进程重写任务执行完后会向父进程发送信号，父进程会将重写缓冲区中的指令写入新的AOF文件。
+
+<img src="https://tva1.sinaimg.cn/large/007S8ZIlgy1gj45wngw7uj30vc0ektc2.jpg" alt="截屏2020-09-26 下午5.05.22" style="zoom:50%;" />
+
+## 混合持久化机制
+
+Redis 4.0 中提出了一个混合使用 AOF 日志和内存快照的方法。简单来说，内存快照以一定的频率执行，在两次快照之间，使用 AOF 日志记录这期间的所有命令操作。
+
+<img src="https://tva1.sinaimg.cn/large/007S8ZIlgy1gj8m0hr23tj30vm0jq434.jpg" alt="截屏2020-09-30 下午1.25.00" style="zoom:50%;" />
 
 # 事件
 
@@ -446,7 +472,7 @@ Redis服务器是一个事件驱动程序，服务器需要处理以下两类事
 
 # 主从复制
 
-SLAVEOF或者设置slaveof选项
+SLAVEOF或者设置slaveof选项（redis5.0之后使用replicaof）
 
 * 首次复制时从服务器向主服务器发送PSYNC命令
 * 主服务器收到命令后执行BGSAVE生成RDB文件，并使用缓冲区记录从现在开始的所有写命令
@@ -454,11 +480,19 @@ SLAVEOF或者设置slaveof选项
 * 主服务器将缓冲区中的写命令发送给从服务器执行
 * 往后主服务器每次执行写操作时会将该命令发送给从服务器
 
+<img src="https://tva1.sinaimg.cn/large/007S8ZIlgy1gj8mw2k32gj30v60e0jvi.jpg" alt="截屏2020-09-30 下午1.55.21" style="zoom:50%;" />
+
 断线重连操作，主从双方会维护一个复制偏移量和服务器ID，主服务器会维护一个固定长度的先进先出队列（复制积压缓冲区），想从服务器发送写命令时会先将命令记录在该队列中。
 
 * 从服务器重连时会发送之前保存的主服务器ID，如果该ID和当前连接的主服务器一样可以尝试进行部分重同步，否则执行完整重同步。
 * 根据传给主服务器的偏移值进行判断是否执行部分重同步，如果偏移值之后（
   +1）的数据还在，则将缺少的命令传给从服务器，否则执行完整同步。
+
+<img src="https://tva1.sinaimg.cn/large/007S8ZIlgy1gj8mwnh750j30v20fydjs.jpg" alt="截屏2020-09-30 下午1.55.56" style="zoom:50%;" />
+
+repl_backlog_buffer：主库的所有写命令都会记录在该内存区域，用来同步主从之间的差异。
+
+replication buffer：网络缓冲区。
 
 # 哨兵
 
@@ -473,9 +507,17 @@ redis-server 配置文件路径 --sentinel
 
 哨兵是通过连接主服务器获取相应从服务器的信息的，sentinel会将从服务器信息记录在主服务器实例结构的slaves字典里面，获取到从服务器信息后回创建到从服务器的连接，和主服务器一样创建命令连接和订阅连接（向_sentinel_:hello发送订阅信息）。默认会以十秒一次的频率向连接的服务器发送INFO命令获取服务器状态。每两秒一次通过命令连接向服务器的_sentinel_:hello频道发送信息。这也就是说，对于每个与Sentinel连接的服务器，Sentinel既通过命令连接向服务器的__sentinel__:hello频道发送信息，又通过订阅连接从服务器的__sentinel__:hello频道接收信息。
 
+<img src="https://tva1.sinaimg.cn/large/007S8ZIlgy1gj8zcufxhrj30v00hmn0m.jpg" alt="截屏2020-09-30 下午9.06.44" style="zoom:50%;" />
+
 对于监视同一个服务器的多个Sentinel来说，一个Sentinel发送的频道信息会被其他Sentinel接收到，这些信息会被用于更新其他Sentinel对发送信息Sentinel的认知，也会被用于更新其他Sentinel对被监视服务器的认知。
 
+<img src="https://tva1.sinaimg.cn/large/007S8ZIlgy1gj8zasaa7sj30vc0h8wic.jpg" alt="截屏2020-09-30 下午9.04.41" style="zoom:50%;" />
+
 每个sentinel服务器都会记录其他监视同一服务器的sentinel服务器的信息，双方会创建命令连接。
+
+通过订阅哨兵的指定频道我们可以获取哨兵的运行状态：
+
+<img src="https://tva1.sinaimg.cn/large/007S8ZIlgy1gj8zg3xvhqj30uw0j0dmn.jpg" alt="截屏2020-09-30 下午9.09.51" style="zoom:50%;" />
 
 初始化哨兵时不会向初始化一般redis服务器一样载入RDB或者AOF文件，载入的命令表也不一样。
 
@@ -630,6 +672,8 @@ typedef struct clusterState{
 
 当客户端接收到ASK错误并转向至正在导入槽的节点时，客户端会先向节点发送一个ASKING命令，然后才重新发送想要执行的命令，这是因为如果客户端不发送ASKING命令，而直接发送想要执行的命令的话，那么客户端发送的命令将被节点拒绝执行，并返回MOVED错误。ASKING命令唯一要做的就是打开发送该命令的客户端的REDIS_ASKING标识，在一般情况下，如果客户端向节点发送一个关于槽i的命令，而槽i又没有指派给这个节点的话，那么节点将向客户端返回一个MOVED错误；但是，如果节点的clusterState.importing_slots_from[i]显示节点正在导入槽i，并且发送命令的客户端带有REDIS_ASKING标识，那么节点将破例执行这个关于槽i的命令一次。客户端的REDIS_ASKING标识是一个一次性标识，当节点执行了一个带有REDIS_ASKING标识的客户端发送的命令之后，客户端的REDIS_ASKING标识就会被移除。
 
+MOVED命令和ASK命令的区别在于ASK命令并不会更新客户端缓存的哈希槽的分配信息。
+
 ## 复制与故障转移
 
 ```shell
@@ -739,3 +783,8 @@ BITOP //多个二进制数组进行运算
 # 监视器
 
 通过执行MONITOR命令，客户端可以将自己变为一个监视器，实时地接收并打印出服务器当前处理的命令请求的相关信息。
+
+# redis网络模型
+
+<img src="https://tva1.sinaimg.cn/large/007S8ZIlgy1gj4463simnj30vu0ko0xm.jpg" alt="截屏2020-09-26 下午4.05.23" style="zoom:50%;" />
+

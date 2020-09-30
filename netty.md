@@ -84,3 +84,18 @@ Netty的模型是基于Reactor模式。Netty的NioEventLoop模型和dubbo的网�
 
 [线程模型的具体讲解](https://ifeve.com/%E8%B0%88%E8%B0%88netty%E7%9A%84%E7%BA%BF%E7%A8%8B%E6%A8%A1%E5%9E%8B/)
 
+## 客户端引导Bootstrap
+
+<img src="https://tva1.sinaimg.cn/large/007S8ZIlgy1gj1qxsh0buj31ht0u0kjl.jpg" alt="截屏2020-09-24 下午2.56.27" style="zoom:50%;" />
+
+## 服务端引导ServerBootstrap
+
+<img src="https://tva1.sinaimg.cn/large/007S8ZIlgy1gj1qyw5tjnj326n0u04qp.jpg" alt="截屏2020-09-24 下午2.57.33" style="zoom:50%;" />
+
+从channel引导客户端：
+
+<img src="https://tva1.sinaimg.cn/large/007S8ZIlgy1gj1qzd1xehj31lz0u07wi.jpg" alt="截屏2020-09-24 下午2.58.01" style="zoom:50%;" />
+
+# Netty网络知识
+
+通过netty编码和解码组件可以解决tcp粘包和拆包。
