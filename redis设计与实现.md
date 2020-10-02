@@ -4,7 +4,7 @@ redis支持的数据结构和底层实现：
 
  <img src="https://tva1.sinaimg.cn/large/007S8ZIlgy1gj41kjne5ij30uk092q5f.jpg" alt="截屏2020-09-26 下午2.34.54" style="zoom:50%;" />
 
-redis键值的组织结构：
+redis键值的组织结构：全局哈希表记录所有的键值对
 
 <img src="https://tva1.sinaimg.cn/large/007S8ZIlgy1gj41q5gdq8j30vc0fgwi8.jpg" alt="截屏2020-09-26 下午2.40.50" style="zoom:50%;" />
 
@@ -33,6 +33,14 @@ SDS与C字符串的区别：
 * 减少字符串修改时内存重分配的次数（空间预分配，惰性空间释放）
 * 忽略特殊字符的影响
 * 兼容部分C字符串函数
+
+String类型的底层存储结构：
+
+<img src="https://tva1.sinaimg.cn/large/007S8ZIlgy1gj9yzomt86j30vy0k879c.jpg" alt="截屏2020-10-01 下午5.39.35" style="zoom:50%;" />
+
+redis会用一个redisObject对象存储数据类型，该对象包含元数据信息和实际的数据类型信息。根据存储类型大小的不同redis做了以上几种优化机制。除了以上的存储开销还有全局哈希表的存储开销，redis在分配内存时是按照2的次方来分配的，所以会存在占用的空间比实际存储的空间大。
+
+<img src="/Users/chenjie/Library/Application Support/typora-user-images/截屏2020-10-01 下午5.43.00.png" alt="截屏2020-10-01 下午5.43.00" style="zoom:50%;" />
 
 ## 链表
 
@@ -169,7 +177,7 @@ typedef struct intset{
 
 ## 压缩列表
 
-压缩列表（ziplist）是列表和哈希的底层实现之一。当一个列表键只包含少量列表项，并且每个列表项要么就是小整数值，要么就是长度比较短的字符串，那么Redis就会使用压缩列表来做列表键的底层实现。
+压缩列表（ziplist）是列表，有序列表和哈希的底层实现之一。当一个列表键只包含少量列表项，并且每个列表项要么就是小整数值，要么就是长度比较短的字符串，那么Redis就会使用压缩列表来做列表键的底层实现。
 
 |  zlbytes   |         zltail         | zllen  | entry1 | entry2 | .... | entryN | zlend |
 | :--------: | :--------------------: | :----: | :----: | :----: | :--: | :----: | :---: |
@@ -181,7 +189,7 @@ typedef struct intset{
 
 previous_entry_length属性的长度可以是1字节（小于254字节）或者5字节（大于等于254字节），所以可能存在连续跟新的问题，插入或者删除一个节点时可能导致previous_entry_length属性字段需要扩容，导致之后的所有节点都需要扩容。
 
-## 对象
+## 对象（RedisObject）
 
 ```c
 typedef struct redisObject{
@@ -227,6 +235,25 @@ typedef struct redisObject{
 | REDIS_SET    | REDIS_ENCODING_HT         |
 | REDIS_ZSET   | REDIS_ENCODING_ZIPLIST    |
 | REDIS_ZSET   | REDIS_ENCODING_SKIPLIST   |
+
+## GEO
+
+GEO可以用来处理位置信息，底层采用有序列表进行存储，通过经纬度进行排序。但是一般经纬度是一组数据不能进行有效的排序，所以GEO采用GeoHash对经纬度进行编码（通过类似哈夫曼编码的方式分别对经纬度进行编码，然后合并）。常用的操作指令如下：
+
+```cmd
+// 添加经纬度元素信息
+GEOADD cars:locations 116.034579 39.030452 33
+// 查询给定经纬度一定范围内的元素
+GEORADIUS cars:locations 116.054579 39.030452 5 km ASC COUNT 10
+```
+
+## 自定义数据类型
+
+需要的时候自己看
+
+## RedisTimeSeries
+
+需要的时候自己看（存储时间序列）
 
 # 数据库
 
@@ -787,4 +814,54 @@ BITOP //多个二进制数组进行运算
 # redis网络模型
 
 <img src="https://tva1.sinaimg.cn/large/007S8ZIlgy1gj4463simnj30vu0ko0xm.jpg" alt="截屏2020-09-26 下午4.05.23" style="zoom:50%;" />
+
+# redis实践
+
+## 集合统计模式
+
+* 聚合统计 //多个集合数据之间的统计比较
+* 排序统计
+* 二值状态统计 //存储的值不就是1就是0，可以用Bitmap
+* 基数统计
+
+## Redis消息队列方案
+
+消息队列需求满足的条件：
+
+* 消息保序
+* 重复消息处理
+* 消息可靠性保证
+
+### 基于List的消息队列
+
+* List本身就是按照插入顺序进行存储
+* 生产者提供唯一性标识
+* BRPOPLPUSH 命令从一个 List 中读取消息，同时Redis 会把这个消息插入到另一个 List 留存
+
+### 基于Stream的消息队列解决方案
+
+Streams 是 Redis 专门为消息队列设计的数据类型，它提供了丰富的消息队列操作命令。
+
+* XADD：插入消息，保证有序，可以自动生成全局唯一 ID；
+* XREAD：用于读取消息，可以按 ID 读取数据；
+* XREADGROUP：按消费组形式读取消息，队列中的消息被消费组中的一个消费者读取后就不会被组内的其他消费者读取
+* XPENDING 和 XACK：XPENDING 命令可以用来查询每个消费组内所有消费者已读取但尚未确认的消息，而 XACK 命令用于向消息队列确认消息处理已完成。
+
+为了保证消费者在发生故障或宕机再次重启后，仍然可以读取未处理完的消息，Streams 会自动使用内部队列（也称为 PENDING List）留存消费组里每个消费者读取的消息，直到消费者使用 XACK 命令通知 Streams“消息已经处理完成”。如果消费者没有成功处理消息，它就不会给 Streams 发送 XACK 命令，消息仍然会留存。此时，消费者可以在重启后，用 XPENDING 命令查看已读取、但尚未确认处理完成的消息。
+
+## Redis性能影响
+
+### Redis交互操作
+
+<img src="https://tva1.sinaimg.cn/large/007S8ZIlgy1gjazan78ubj30v20pqdlf.jpg" alt="截屏2020-10-02 下午2.35.45" style="zoom:50%;" />
+
+### 主流CPU架构（NUMA）
+
+<img src="https://tva1.sinaimg.cn/large/007S8ZIlgy1gjazzvhcusj30v20gsq70.jpg" alt="截屏2020-10-02 下午2.59.57" style="zoom:50%;" />
+
+<img src="https://tva1.sinaimg.cn/large/007S8ZIlgy1gjb009p8x7j30us0d0wgb.jpg" alt="截屏2020-10-02 下午3.00.22" style="zoom:50%;" />
+
+如果应用程序先在一个 Socket 上运行，并且把数据保存到了内存，然后被调度到另一个 Socket 上运行，此时，应用程序再进行内存访问时，就需要访问之前 Socket 上连接的内存，这种访问属于远端内存访问。和访问 Socket 直接连接的内存相比，远端内存访问会增加应用程序的延迟。这种情况我们可以通过taskset命令将redis实例绑定在一个CPU核上运行。
+
+通过以下命令可以检测当前redis的基础性能：./redis-cli --intrinsic-latency 120，将这个基础性能作为参照来判断redis是否响应慢了。
 
