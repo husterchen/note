@@ -20,6 +20,13 @@ kafka消费者有时会出现消费的数据丢失，可能是因为更新了消
 
 在创建 KafkaProducer 实例时，生产者应用会在后台创建并启动一个名为 Sender 的线程，该 Sender 线程开始运行时首先会创建与 Broker 的连接。Producer 启动时会发起与bootstrap.servers 参数设置的broker进行连接。
 
+kafka的高性能IO主要表现在：
+
+* 消息的批量处理
+* 充分利用文件缓存（文件缓存的淘汰策略是LRU，kafka消息一般发送到broker就会立即被消费，文件胡缓存命中率较高）
+* 磁盘顺序读写
+* 零拷贝
+
 # broker 配置
 
 常规配置
@@ -309,6 +316,8 @@ Kafka 拦截器分为生产者拦截器和消费者拦截器。生产者拦截�
 * read_uncommitted
 * read_committed
 
+kafka生产者api提供了相应的事务操作函数。
+
 # kafka控制器
 
 Broker 在启动时，会尝试去 ZooKeeper 中创建 /controller 节点。Kafka 当前选举控制器的规则是：第一个成功创建 /controller 节点的 Broker 会被指定为控制器。
@@ -389,3 +398,10 @@ bin/kafka-configs.sh --bootstrap-server kafka-host:port --entity-type brokers --
 
 流在时间维度上聚合之后形成表，表在时间维度上不断更新形成流，这就是所谓的流表二元性。
 
+# Kafka的zk数据存储
+
+
+
+<img src="https://static001.geekbang.org/resource/image/80/b3/806ac0fc52ccbf50506e3b5d269b81b3.jpg" alt="img" style="zoom:50%;" />
+
+圆角表示吧临时节点，左侧存储broker信息，右侧存储主题信息。每个分区节点下面是一个名为 state 的临时节点，节点中保存着分区当前的 leader 和所有的 ISR 的 BrokerID。这个 state 临时节点是由这个分区当前的 Leader Broker 创建的。如果这个分区的 Leader Broker 宕机了，对应的这个 state 临时节点也会消失，直到新的 Leader 被选举出来，再次创建 state 临时节点。

@@ -227,6 +227,8 @@ Lua脚本跟单个Redis命令以及"MULTI"/"EXEC"事务一样，都是原子操�
 
 ## 缓存问题的解决方法
 
+![img](https://static001.geekbang.org/resource/image/b5/e1/b5bd931239be18bef24b2ef36c70e9e1.jpg)
+
 * 缓存穿透
 
   用户查询一个在数据库中不存在的数据，当然也不会存在缓存中。
