@@ -481,6 +481,16 @@ ThreadLocal内部实现：
 
 首先需要利用中断将线程状态转换为运行时。
 
+# Java 小记
+
+* Java变量的初始化顺序为：静态变量或静态语句块–>实例变量或初始化语句块–>构造方法–>@Autowired
+
+
+
+
+
+
+
 # Effective Java
 
 ## 创建和销毁对象
@@ -520,4 +530,6 @@ ThreadLocal内部实现：
 * 考虑实现Comparable接口
 
 ## 类和接口
+
+# JVM调优
 

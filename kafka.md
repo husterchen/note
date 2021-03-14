@@ -405,3 +405,12 @@ bin/kafka-configs.sh --bootstrap-server kafka-host:port --entity-type brokers --
 <img src="https://static001.geekbang.org/resource/image/80/b3/806ac0fc52ccbf50506e3b5d269b81b3.jpg" alt="img" style="zoom:50%;" />
 
 圆角表示吧临时节点，左侧存储broker信息，右侧存储主题信息。每个分区节点下面是一个名为 state 的临时节点，节点中保存着分区当前的 leader 和所有的 ISR 的 BrokerID。这个 state 临时节点是由这个分区当前的 Leader Broker 创建的。如果这个分区的 Leader Broker 宕机了，对应的这个 state 临时节点也会消失，直到新的 Leader 被选举出来，再次创建 state 临时节点。
+
+# DMA（直接内存访问）
+
+DMA技术就是我们在主板上放一块独立的芯片。在进行内存和I/O设备的数据传输的时候，我们不再通过 CPU 来控制数据传输，而直接通过 **DMA 控制器**。DMA就相当于是一个代理，CPU告诉DMA需要从哪里读取数据已经读取多少数据，然后DMA和I/O设备进行通信，完了再和CPU通信。
+
+<img src="https://tva1.sinaimg.cn/large/008eGmZEgy1gn3qzfrjj7j30we0qiafl.jpg" alt="截屏2021-01-28 下午9.50.31" style="zoom: 50%;" />
+
+<img src="https://tva1.sinaimg.cn/large/008eGmZEgy1gn3qzvuawkj30mc0rogq8.jpg" alt="截屏2021-01-28 下午9.50.59" style="zoom:50%;" />
+
